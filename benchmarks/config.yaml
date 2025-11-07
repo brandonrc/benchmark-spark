@@ -1,0 +1,87 @@
+# Benchmark Configuration
+
+# Test configurations for LLM inference
+llm_tests:
+  - id: "T1_single_short"
+    batch_size: 1
+    input_length: 128
+    output_length: 32
+    description: "Single request, short context"
+
+  - id: "T2_single_medium"
+    batch_size: 1
+    input_length: 512
+    output_length: 128
+    description: "Single request, medium context"
+
+  - id: "T3_single_long"
+    batch_size: 1
+    input_length: 2048
+    output_length: 512
+    description: "Single request, long context"
+
+  - id: "T4_batch4_medium"
+    batch_size: 4
+    input_length: 512
+    output_length: 128
+    description: "Small batch, medium context"
+
+  - id: "T5_batch16_medium"
+    batch_size: 16
+    input_length: 512
+    output_length: 128
+    description: "Medium batch, medium context"
+
+  - id: "T6_batch32_medium"
+    batch_size: 32
+    input_length: 512
+    output_length: 128
+    description: "Large batch, medium context"
+
+# Matrix multiplication test (sanity check)
+matmul_test:
+  matrix_size: 10000
+  dtype: "float32"
+  iterations: 10
+  warmup: 3
+
+# Benchmark execution parameters
+execution:
+  warmup_iterations: 10
+  measurement_iterations: 100
+  cooldown_seconds: 30
+  random_seed: 42
+
+# GPU monitoring
+monitoring:
+  sample_interval: 1.0  # seconds
+  metrics:
+    - "timestamp"
+    - "name"
+    - "index"
+    - "utilization.gpu"
+    - "utilization.memory"
+    - "memory.total"
+    - "memory.used"
+    - "memory.free"
+    - "temperature.gpu"
+    - "power.draw"
+    - "clocks.sm"
+    - "clocks.mem"
+
+# Model configuration
+model:
+  # Adjust these based on available models
+  name: "llama-2-7b"  # or "gpt-j-6b"
+  engine_path: "/models/engines/llama-2-7b-fp16"
+  tokenizer_path: "/models/tokenizers/llama-2-7b"
+  max_batch_size: 32
+  max_input_len: 2048
+  max_output_len: 512
+
+# Output configuration
+output:
+  results_dir: "/results"
+  save_format: "csv"
+  include_metadata: true
+  generate_plots: true

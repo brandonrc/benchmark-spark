@@ -1,0 +1,34 @@
+benchmark-spark/
+│
+├── README.md                          # Project overview and introduction
+├── QUICKSTART.md                      # 5-minute getting started guide
+├── GETTING_STARTED.md                 # Comprehensive action plan
+├── SUMMARY.md                         # Complete repository summary
+├── CONTRIBUTING.md                    # Contribution guidelines
+├── LICENSE                            # MIT license
+├── requirements.txt                   # Python dependencies
+├── .gitignore                         # Git ignore rules
+│
+├── benchmarks/                        # Benchmark implementations
+│   ├── simple_matmul.py              # Matrix multiplication benchmark
+│   ├── llm_inference.py              # TensorRT-LLM inference benchmark
+│   └── config.yaml                   # Test configurations
+│
+├── scripts/                           # Automation scripts
+│   ├── setup_native.sh               # Native TensorRT-LLM installation
+│   ├── run_container_benchmark.sh    # Container benchmark runner
+│   └── run_native_benchmark.sh       # Native benchmark runner
+│
+├── analysis/                          # Analysis tools
+│   └── compare_results.py            # Statistical comparison and visualization
+│
+├── docs/                              # Documentation (GitHub Pages)
+│   ├── index.md                      # Landing page
+│   ├── setup.md                      # Setup guide
+│   ├── methodology.md                # Scientific methodology
+│   └── reference_paper.md            # Academic background
+│
+└── results/                           # Generated results (gitignored)
+    ├── container/                    # Container benchmark outputs
+    ├── native/                       # Native benchmark outputs
+    └── comparison/                   # Analysis outputs
