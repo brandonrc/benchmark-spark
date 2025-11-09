@@ -35,6 +35,51 @@ fi
 CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9.]*\).*/\1/p')
 echo -e "${GREEN}✓ CUDA ${CUDA_VERSION} found${NC}"
 
+# Check if CUDA version is 13.x - we need 12.9 to match the container
+CUDA_MAJOR=$(echo $CUDA_VERSION | cut -d. -f1)
+CUDA_MINOR=$(echo $CUDA_VERSION | cut -d. -f2)
+CUDA_12_9_PATH="/usr/local/cuda-12.9"
+
+if [ "$CUDA_MAJOR" == "13" ] || [ "$CUDA_VERSION" != "12.9" ]; then
+    echo -e "${YELLOW}Note: Container uses CUDA 12.9. Current CUDA is ${CUDA_VERSION}${NC}"
+
+    # Check if CUDA 12.9 is already installed
+    if [ -d "$CUDA_12_9_PATH" ]; then
+        echo -e "${GREEN}✓ CUDA 12.9 found at ${CUDA_12_9_PATH}${NC}"
+    else
+        echo -e "${YELLOW}CUDA 12.9 not found. Would you like to install it? (y/n)${NC}"
+        echo "This will install CUDA 12.9 alongside your existing CUDA ${CUDA_VERSION}"
+        echo "Commands to run:"
+        echo "  sudo apt-get update"
+        echo "  sudo apt-get install -y cuda-toolkit-12-9"
+        read -p "Install CUDA 12.9? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "Installing CUDA 12.9 toolkit..."
+            sudo apt-get update
+            sudo apt-get install -y cuda-toolkit-12-9
+
+            if [ ! -d "$CUDA_12_9_PATH" ]; then
+                echo -e "${RED}ERROR: CUDA 12.9 installation failed${NC}"
+                echo "Continuing with CUDA ${CUDA_VERSION} (will use PyTorch CUDA 12.1)"
+            else
+                echo -e "${GREEN}✓ CUDA 12.9 installed successfully${NC}"
+            fi
+        else
+            echo "Skipping CUDA 12.9 installation. Will use PyTorch with CUDA 12.1 support."
+        fi
+    fi
+
+    # If CUDA 12.9 exists, use it
+    if [ -d "$CUDA_12_9_PATH" ]; then
+        export CUDA_HOME="$CUDA_12_9_PATH"
+        export PATH="$CUDA_12_9_PATH/bin:$PATH"
+        export LD_LIBRARY_PATH="$CUDA_12_9_PATH/lib64:$LD_LIBRARY_PATH"
+        echo -e "${GREEN}✓ Environment configured to use CUDA 12.9${NC}"
+        CUDA_VERSION="12.9"
+    fi
+fi
+
 # Check nvidia-smi
 if ! command -v nvidia-smi &> /dev/null; then
     echo -e "${RED}ERROR: nvidia-smi not found. Please install NVIDIA drivers${NC}"
@@ -92,8 +137,20 @@ pip install --upgrade pip setuptools wheel
 
 # Install PyTorch
 echo ""
-echo "Installing PyTorch with CUDA support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Determine which PyTorch CUDA version to use
+CUDA_MAJOR_MINOR=$(echo $CUDA_VERSION | cut -d. -f1,2 | tr -d '.')
+if [ "$CUDA_VERSION" == "12.9" ]; then
+    echo "Installing PyTorch with CUDA 12.1 support (closest to CUDA 12.9)..."
+    PYTORCH_INDEX="cu121"
+elif [ "$CUDA_MAJOR" == "13" ]; then
+    echo "Installing PyTorch with CUDA 12.1 support (compatible with CUDA 13)..."
+    PYTORCH_INDEX="cu121"
+else
+    echo "Installing PyTorch with CUDA ${CUDA_MAJOR_MINOR} support..."
+    PYTORCH_INDEX="cu${CUDA_MAJOR_MINOR}"
+fi
+
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/${PYTORCH_INDEX}
 
 # Verify PyTorch CUDA
 echo ""
@@ -176,12 +233,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Activate virtual environment
 source "${SCRIPT_DIR}/venv/bin/activate"
 
-# Set environment variables
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-export PATH=/usr/local/cuda/bin:$PATH
+# Set up CUDA 12.9 if available (to match container CUDA 12.9)
+if [ -d "/usr/local/cuda-12.9" ]; then
+    export CUDA_HOME="/usr/local/cuda-12.9"
+    export LD_LIBRARY_PATH="/usr/local/cuda-12.9/lib64:$LD_LIBRARY_PATH"
+    export PATH="/usr/local/cuda-12.9/bin:$PATH"
+    echo "Using CUDA 12.9 (matching container)"
+else
+    # Fallback to default CUDA
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    export PATH=/usr/local/cuda/bin:$PATH
+    echo "Using system default CUDA"
+fi
 
 echo "TensorRT-LLM native environment activated"
 echo "Python: $(which python)"
+echo "CUDA: ${CUDA_HOME:-/usr/local/cuda}"
 echo "To deactivate, run: deactivate"
 EOF
 

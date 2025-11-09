@@ -1,16 +1,16 @@
 #!/bin/bash
 #
-# Container Benchmark Runner
-# Runs benchmarks inside NVIDIA's TensorRT-LLM container for DGX Spark
+# Native Benchmark Runner (Bare Metal)
+# Runs benchmarks using extracted container binaries on bare metal (no Docker)
 #
 
 set -e  # Exit on error
 
 # Configuration
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev}"
-RESULTS_DIR="${RESULTS_DIR:-$(pwd)/results/container}"
+RESULTS_DIR="${RESULTS_DIR:-$(pwd)/results/native}"
 BENCHMARK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GPU_MONITOR_INTERVAL="${GPU_MONITOR_INTERVAL:-1}"
+CONTAINER_ROOTFS="${CONTAINER_ROOTFS:-$HOME/container-rootfs}"
 LOCAL_MODELS_DIR="${LOCAL_MODELS_DIR:-/data/models/huggingface}"
 
 # Colors for output
@@ -20,54 +20,50 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo "========================================"
-echo "  Container Benchmark Runner"
+echo "  Native Benchmark Runner (Bare Metal)"
 echo "========================================"
-echo "Container: ${CONTAINER_IMAGE}"
 echo "Results dir: ${RESULTS_DIR}"
 echo "Benchmark dir: ${BENCHMARK_DIR}"
+echo "Container rootfs: ${CONTAINER_ROOTFS}"
 echo ""
 
 # Create results directory
 mkdir -p "${RESULTS_DIR}"
 
-# Check if Docker is available
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}ERROR: Docker not found. Please install Docker.${NC}"
+# Check if container rootfs exists
+if [ ! -d "${CONTAINER_ROOTFS}" ]; then
+    echo -e "${RED}ERROR: Container rootfs not found: ${CONTAINER_ROOTFS}${NC}"
+    echo "Please run: ./scripts/extract_container_rootfs.sh"
     exit 1
 fi
 
-# Check if nvidia-docker runtime is available
-# First ensure the container image is available
-if ! docker image inspect "${CONTAINER_IMAGE}" &> /dev/null; then
-    echo "Pulling container image for runtime check..."
-    docker pull "${CONTAINER_IMAGE}"
-fi
-
-if ! docker run --rm --gpus all "${CONTAINER_IMAGE}" nvidia-smi &> /dev/null; then
-    echo -e "${RED}ERROR: NVIDIA Docker runtime not working. Check nvidia-container-toolkit installation.${NC}"
+if [ ! -f "${CONTAINER_ROOTFS}/run_in_rootfs.sh" ]; then
+    echo -e "${RED}ERROR: Rootfs runner script not found${NC}"
+    echo "Please re-run: ./scripts/extract_container_rootfs.sh"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Docker and NVIDIA runtime OK${NC}"
+echo -e "${GREEN}✓ Container rootfs found${NC}"
 
-# Pull container if not already present
+# Verify GPU access
 echo ""
-echo "Checking container image..."
-if ! docker image inspect "${CONTAINER_IMAGE}" &> /dev/null; then
-    echo "Pulling container image (this may take a while)..."
-    docker pull "${CONTAINER_IMAGE}"
-else
-    echo -e "${GREEN}✓ Container image already present${NC}"
+echo "Verifying GPU access..."
+if ! nvidia-smi &> /dev/null; then
+    echo -e "${RED}ERROR: nvidia-smi not accessible${NC}"
+    exit 1
 fi
+echo -e "${GREEN}✓ GPU access OK${NC}"
 
 # Start enhanced monitoring in background (GPU + system memory)
 MONITOR_PID=""
 GPU_MONITOR_PID=""
+
 function start_gpu_monitor() {
     local output_file="$1"
 
     # Capture baseline metrics
     local baseline_file="${output_file%.csv}_baseline.txt"
+    echo ""
     echo "Capturing baseline memory metrics..."
     echo "=== Baseline Memory Metrics ===" > "${baseline_file}"
     echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "${baseline_file}"
@@ -94,8 +90,8 @@ function start_gpu_monitor() {
     # Start continuous monitoring
     echo "Starting enhanced GPU and memory monitor (output: ${output_file})..."
 
-    # Use the enhanced monitor script
-    "${BENCHMARK_DIR}/scripts/monitor_memory.sh" "${output_file}" "${GPU_MONITOR_INTERVAL}" &
+    # Use the enhanced monitor script (native version)
+    "${BENCHMARK_DIR}/scripts/monitor_memory_native.sh" "${output_file}" "${GPU_MONITOR_INTERVAL}" &
     MONITOR_PID=$!
 
     # Also keep the original GPU metrics for compatibility
@@ -130,14 +126,14 @@ function stop_gpu_monitor() {
 # Ensure monitor is stopped on exit
 trap stop_gpu_monitor EXIT
 
-# Function to run benchmark in container
+# Function to run benchmark on bare metal
 function run_benchmark() {
     local benchmark_type="$1"
     local extra_args="${2:-}"
 
     echo ""
     echo "========================================"
-    echo "  Running ${benchmark_type} Benchmark"
+    echo "  Running ${benchmark_type} Benchmark (Bare Metal)"
     echo "========================================"
 
     local timestamp=$(date +%Y%m%d_%H%M%S)
@@ -146,14 +142,10 @@ function run_benchmark() {
     # Start monitoring
     start_gpu_monitor "${monitor_file}"
 
-    # Run benchmark in container
-    echo "Starting container benchmark..."
-
+    # Determine benchmark script
     local benchmark_script=""
     if [ "${benchmark_type}" == "matmul" ]; then
         benchmark_script="/workspace/benchmarks/simple_matmul.py"
-    elif [ "${benchmark_type}" == "llm" ]; then
-        benchmark_script="/workspace/benchmarks/llm_inference.py"
     elif [ "${benchmark_type}" == "trtllm" ]; then
         benchmark_script="/workspace/benchmarks/trtllm_benchmark.py"
     else
@@ -161,40 +153,48 @@ function run_benchmark() {
         return 1
     fi
 
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    # Create workspace mount point in rootfs
+    sudo mkdir -p "${CONTAINER_ROOTFS}/workspace"
+    sudo mkdir -p "${CONTAINER_ROOTFS}/results"
+    sudo mkdir -p "${CONTAINER_ROOTFS}/models"
+
+    # Bind mount benchmark directory and results
+    sudo mount --bind "${BENCHMARK_DIR}" "${CONTAINER_ROOTFS}/workspace"
+    sudo mount --bind "${RESULTS_DIR}" "${CONTAINER_ROOTFS}/results"
+    sudo mount --bind "${LOCAL_MODELS_DIR}" "${CONTAINER_ROOTFS}/models"
 
     # Set output path based on benchmark type
     if [ "${benchmark_type}" == "trtllm" ]; then
-        # trtllm benchmark creates its own files in the output directory
         local output_arg="/results"
     else
-        # Other benchmarks need a specific file path
         local output_arg="/results/${benchmark_type}_results_${timestamp}.csv"
     fi
 
-    docker run --rm \
-        --gpus all \
-        --ipc=host \
-        --shm-size=60g \
-        --ulimit memlock=-1 \
-        --ulimit stack=67108864 \
-        -v "${BENCHMARK_DIR}:/workspace" \
-        -v "${RESULTS_DIR}:/results" \
-        -v "${LOCAL_MODELS_DIR}:/models:ro" \
-        "${CONTAINER_IMAGE}" \
-        python "${benchmark_script}" \
-            --environment container \
-            --output "${output_arg}" \
-            ${extra_args}
+    # Run benchmark using rootfs Python
+    echo "Running benchmark on bare metal (no Docker)..."
+    echo ""
+
+    # Build full command
+    local full_cmd="python3 ${benchmark_script} --environment native --output ${output_arg} ${extra_args}"
+
+    # Run in chroot
+    "${CONTAINER_ROOTFS}/run_in_rootfs.sh" bash -c "${full_cmd}"
 
     local exit_code=$?
+
+    # Unmount
+    sudo umount "${CONTAINER_ROOTFS}/workspace" 2>/dev/null || true
+    sudo umount "${CONTAINER_ROOTFS}/results" 2>/dev/null || true
+    sudo umount "${CONTAINER_ROOTFS}/models" 2>/dev/null || true
 
     # Stop monitoring
     stop_gpu_monitor
 
     if [ ${exit_code} -eq 0 ]; then
+        echo ""
         echo -e "${GREEN}✓ ${benchmark_type} benchmark completed successfully${NC}"
     else
+        echo ""
         echo -e "${RED}✗ ${benchmark_type} benchmark failed with exit code ${exit_code}${NC}"
         return ${exit_code}
     fi
@@ -203,25 +203,16 @@ function run_benchmark() {
     echo "Enhanced metrics saved to: ${monitor_file}"
     echo "GPU basic metrics saved to: ${monitor_file%.csv}_gpu_basic.csv"
     echo ""
-    echo "Note: System memory usage includes baseline + benchmark container allocation"
-    echo "      Check baseline file to estimate benchmark-specific memory usage"
+    echo "Note: This ran on BARE METAL using container binaries (no Docker overhead)"
 }
 
 # Main execution
 main() {
-    local benchmark_type="${1:-all}"
+    local benchmark_type="${1:-matmul}"
 
     case "${benchmark_type}" in
         matmul)
             run_benchmark "matmul"
-            ;;
-        llm)
-            # Check if config file exists
-            local config_arg=""
-            if [ -f "${BENCHMARK_DIR}/benchmarks/config.yaml" ]; then
-                config_arg="--config /workspace/benchmarks/config.yaml"
-            fi
-            run_benchmark "llm" "${config_arg}"
             ;;
         trtllm)
             run_benchmark "trtllm" "--benchmark-type throughput --model deepseek-ai/DeepSeek-R1-Distill-Qwen-7B --model-path /models/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
@@ -229,33 +220,27 @@ main() {
         all)
             echo "Running all benchmarks..."
             run_benchmark "matmul"
-            sleep 10  # Brief pause between benchmarks
+            echo ""
+            echo "Waiting 10 seconds before next benchmark..."
+            sleep 10
             run_benchmark "trtllm" "--benchmark-type throughput --model deepseek-ai/DeepSeek-R1-Distill-Qwen-7B --model-path /models/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-            sleep 10  # Brief pause between benchmarks
-            if [ -f "${BENCHMARK_DIR}/benchmarks/llm_inference.py" ]; then
-                local config_arg=""
-                if [ -f "${BENCHMARK_DIR}/benchmarks/config.yaml" ]; then
-                    config_arg="--config /workspace/benchmarks/config.yaml"
-                fi
-                run_benchmark "llm" "${config_arg}"
-            fi
             ;;
         *)
             echo -e "${RED}ERROR: Unknown benchmark type: ${benchmark_type}${NC}"
-            echo "Usage: $0 [matmul|trtllm|llm|all]"
+            echo "Usage: $0 [matmul|trtllm|all]"
             exit 1
             ;;
     esac
 
     echo ""
     echo "========================================"
-    echo "  All Container Benchmarks Complete"
+    echo "  All Bare Metal Benchmarks Complete"
     echo "========================================"
     echo "Results saved to: ${RESULTS_DIR}"
     echo ""
-    echo "Next steps:"
-    echo "  1. Run native benchmarks: ./scripts/run_native_benchmark.sh"
-    echo "  2. Compare results: python analysis/compare_results.py"
+    echo "Compare with container results:"
+    echo "  Container: results/container/"
+    echo "  Bare metal: results/native/"
 }
 
 main "$@"

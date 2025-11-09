@@ -10,7 +10,8 @@ set -e  # Exit on error
 RESULTS_DIR="${RESULTS_DIR:-$(pwd)/results/native}"
 BENCHMARK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GPU_MONITOR_INTERVAL="${GPU_MONITOR_INTERVAL:-1}"
-NATIVE_ENV="${NATIVE_ENV:-$HOME/tensorrt-llm/activate.sh}"
+NATIVE_ENV="${NATIVE_ENV:-$HOME/container-rootfs/activate.sh}"
+LOCAL_MODELS_DIR="${LOCAL_MODELS_DIR:-/data/models/huggingface}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -24,6 +25,7 @@ echo "========================================"
 echo "Results dir: ${RESULTS_DIR}"
 echo "Benchmark dir: ${BENCHMARK_DIR}"
 echo "Native env: ${NATIVE_ENV}"
+echo "Models dir: ${LOCAL_MODELS_DIR}"
 echo ""
 
 # Create results directory
@@ -50,37 +52,83 @@ fi
 # Verify GPU access
 echo ""
 echo "Verifying GPU access..."
-if ! python3 -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+if ! /home/khan/container-rootfs/run_python_simple.sh -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
     echo -e "${RED}ERROR: PyTorch cannot access CUDA${NC}"
-    python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+    /home/khan/container-rootfs/run_python_simple.sh -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
     exit 1
 fi
 
 echo -e "${GREEN}✓ GPU access OK${NC}"
-python3 -c "import torch; print(f'PyTorch CUDA version: {torch.version.cuda}'); print(f'GPU count: {torch.cuda.device_count()}'); [print(f'  GPU {i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]"
+/home/khan/container-rootfs/run_python_simple.sh -c "import torch; print(f'PyTorch CUDA version: {torch.version.cuda}'); print(f'GPU count: {torch.cuda.device_count()}'); [print(f'  GPU {i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]"
 
-# Start GPU monitoring in background
+# Start enhanced monitoring in background (GPU + system memory)
+# For native, we don't track container memory, but track native process instead
 MONITOR_PID=""
+GPU_MONITOR_PID=""
+NATIVE_PROCESS_PID=""
+
 function start_gpu_monitor() {
     local output_file="$1"
-    echo ""
-    echo "Starting GPU monitor (output: ${output_file})..."
 
+    # Capture baseline metrics
+    local baseline_file="${output_file%.csv}_baseline.txt"
+    echo ""
+    echo "Capturing baseline memory metrics..."
+    echo "=== Baseline Memory Metrics ===" > "${baseline_file}"
+    echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "${baseline_file}"
+    echo "" >> "${baseline_file}"
+
+    # System memory baseline
+    echo "--- System Memory (from /proc/meminfo) ---" >> "${baseline_file}"
+    grep -E "MemTotal|MemFree|MemAvailable|Cached|Buffers|Shmem" /proc/meminfo >> "${baseline_file}"
+    echo "" >> "${baseline_file}"
+
+    # GPU baseline
+    echo "--- GPU Metrics (from nvidia-smi) ---" >> "${baseline_file}"
+    nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw \
+        --format=csv >> "${baseline_file}" 2>&1
+    echo "" >> "${baseline_file}"
+
+    # Process memory baseline (top processes)
+    echo "--- Top 10 Memory Consumers ---" >> "${baseline_file}"
+    ps aux --sort=-%mem | head -n 11 >> "${baseline_file}"
+    echo "" >> "${baseline_file}"
+
+    echo -e "${GREEN}✓ Baseline metrics captured: ${baseline_file}${NC}"
+
+    # Start continuous monitoring
+    echo "Starting enhanced GPU and memory monitor (output: ${output_file})..."
+
+    # Use the enhanced monitor script (modified for native - no container tracking)
+    "${BENCHMARK_DIR}/scripts/monitor_memory_native.sh" "${output_file}" "${GPU_MONITOR_INTERVAL}" &
+    MONITOR_PID=$!
+
+    # Also keep the original GPU metrics for compatibility
+    local gpu_basic_file="${output_file%.csv}_gpu_basic.csv"
     nvidia-smi --query-gpu=timestamp,name,index,utilization.gpu,utilization.memory,\
 memory.total,memory.used,memory.free,temperature.gpu,power.draw,clocks.sm,clocks.mem \
-        --format=csv -l "${GPU_MONITOR_INTERVAL}" > "${output_file}" &
+        --format=csv -l "${GPU_MONITOR_INTERVAL}" > "${gpu_basic_file}" &
+    GPU_MONITOR_PID=$!
 
-    MONITOR_PID=$!
-    echo -e "${GREEN}✓ GPU monitor started (PID: ${MONITOR_PID})${NC}"
+    echo -e "${GREEN}✓ Enhanced monitor started (PID: ${MONITOR_PID})${NC}"
+    echo -e "${GREEN}✓ GPU basic monitor started (PID: ${GPU_MONITOR_PID})${NC}"
 }
 
 function stop_gpu_monitor() {
     if [ -n "${MONITOR_PID}" ]; then
-        echo "Stopping GPU monitor..."
+        echo "Stopping enhanced monitor..."
         kill "${MONITOR_PID}" 2>/dev/null || true
         wait "${MONITOR_PID}" 2>/dev/null || true
         MONITOR_PID=""
-        echo -e "${GREEN}✓ GPU monitor stopped${NC}"
+        echo -e "${GREEN}✓ Enhanced monitor stopped${NC}"
+    fi
+
+    if [ -n "${GPU_MONITOR_PID}" ]; then
+        echo "Stopping GPU basic monitor..."
+        kill "${GPU_MONITOR_PID}" 2>/dev/null || true
+        wait "${GPU_MONITOR_PID}" 2>/dev/null || true
+        GPU_MONITOR_PID=""
+        echo -e "${GREEN}✓ GPU basic monitor stopped${NC}"
     fi
 }
 
@@ -98,7 +146,7 @@ function run_benchmark() {
     echo "========================================"
 
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local monitor_file="${RESULTS_DIR}/gpu_metrics_${benchmark_type}_${timestamp}.csv"
+    local monitor_file="${RESULTS_DIR}/enhanced_metrics_${benchmark_type}_${timestamp}.csv"
 
     # Start monitoring
     start_gpu_monitor "${monitor_file}"
@@ -109,6 +157,8 @@ function run_benchmark() {
         benchmark_script="${BENCHMARK_DIR}/benchmarks/simple_matmul.py"
     elif [ "${benchmark_type}" == "llm" ]; then
         benchmark_script="${BENCHMARK_DIR}/benchmarks/llm_inference.py"
+    elif [ "${benchmark_type}" == "trtllm" ]; then
+        benchmark_script="${BENCHMARK_DIR}/benchmarks/trtllm_benchmark.py"
     else
         echo -e "${RED}ERROR: Unknown benchmark type: ${benchmark_type}${NC}"
         return 1
@@ -124,9 +174,18 @@ function run_benchmark() {
     echo "Running benchmark script: ${benchmark_script}"
     echo ""
 
-    python3 "${benchmark_script}" \
+    # Set output path based on benchmark type
+    if [ "${benchmark_type}" == "trtllm" ]; then
+        # trtllm benchmark creates its own files in the output directory
+        local output_arg="${RESULTS_DIR}"
+    else
+        # Other benchmarks need a specific file path
+        local output_arg="${RESULTS_DIR}/${benchmark_type}_results_${timestamp}.csv"
+    fi
+
+    /home/khan/container-rootfs/run_in_rootfs.sh python3 "${benchmark_script}" \
         --environment native \
-        --output "${RESULTS_DIR}" \
+        --output "${output_arg}" \
         ${extra_args}
 
     local exit_code=$?
@@ -143,7 +202,12 @@ function run_benchmark() {
         return ${exit_code}
     fi
 
-    echo "GPU metrics saved to: ${monitor_file}"
+    echo "Baseline metrics saved to: ${monitor_file%.csv}_baseline.txt"
+    echo "Enhanced metrics saved to: ${monitor_file}"
+    echo "GPU basic metrics saved to: ${monitor_file%.csv}_gpu_basic.csv"
+    echo ""
+    echo "Note: System memory usage includes baseline + benchmark process allocation"
+    echo "      Check baseline file to estimate benchmark-specific memory usage"
 }
 
 # Main execution
@@ -162,17 +226,26 @@ main() {
             fi
             run_benchmark "llm" "${config_arg}"
             ;;
+        trtllm)
+            run_benchmark "trtllm" "--benchmark-type throughput --model deepseek-ai/DeepSeek-R1-Distill-Qwen-7B --model-path ${LOCAL_MODELS_DIR}/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+            ;;
         all)
             echo "Running all benchmarks..."
             run_benchmark "matmul"
-            echo ""
-            echo "Waiting 10 seconds before next benchmark..."
-            sleep 10
-            run_benchmark "llm"
+            sleep 10  # Brief pause between benchmarks
+            run_benchmark "trtllm" "--benchmark-type throughput --model deepseek-ai/DeepSeek-R1-Distill-Qwen-7B --model-path ${LOCAL_MODELS_DIR}/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+            sleep 10  # Brief pause between benchmarks
+            if [ -f "${BENCHMARK_DIR}/benchmarks/llm_inference.py" ]; then
+                local config_arg=""
+                if [ -f "${BENCHMARK_DIR}/benchmarks/config.yaml" ]; then
+                    config_arg="--config ${BENCHMARK_DIR}/benchmarks/config.yaml"
+                fi
+                run_benchmark "llm" "${config_arg}"
+            fi
             ;;
         *)
             echo -e "${RED}ERROR: Unknown benchmark type: ${benchmark_type}${NC}"
-            echo "Usage: $0 [matmul|llm|all]"
+            echo "Usage: $0 [matmul|trtllm|llm|all]"
             exit 1
             ;;
     esac

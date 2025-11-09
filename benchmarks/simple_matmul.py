@@ -12,27 +12,28 @@ from datetime import datetime
 import numpy as np
 
 try:
-    import tensorflow as tf
+    import torch
 except ImportError:
-    print("Error: TensorFlow not installed. Install with: pip install tensorflow", file=sys.stderr)
+    print("Error: PyTorch not installed. Install with: pip install torch", file=sys.stderr)
     sys.exit(1)
 
 
 def check_gpu():
     """Verify GPU availability and print info."""
-    gpus = tf.config.list_physical_devices('GPU')
-    if not gpus:
+    if not torch.cuda.is_available():
         print("ERROR: No GPU devices found!", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Found {len(gpus)} GPU(s):")
-    for gpu in gpus:
-        print(f"  - {gpu.name}")
+    gpu_count = torch.cuda.device_count()
+    print(f"Found {gpu_count} GPU(s):")
+    for i in range(gpu_count):
+        print(f"  - {torch.cuda.get_device_name(i)}")
 
-    # Print TensorFlow and CUDA info
-    print(f"TensorFlow version: {tf.__version__}")
-    print(f"CUDA available: {tf.test.is_built_with_cuda()}")
-    print(f"GPU compute capability: {tf.test.gpu_device_name()}")
+    # Print PyTorch and CUDA info
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"cuDNN version: {torch.backends.cudnn.version()}")
     print()
 
 
@@ -54,20 +55,20 @@ def matrix_multiply_benchmark(matrix_size=10000, iterations=10, warmup=3):
     print(f"Measurement iterations: {iterations}")
     print("-" * 60)
 
+    # Set device
+    device = torch.device('cuda:0')
+
     # Create random matrices on GPU
-    with tf.device('/GPU:0'):
-        matrix_a = tf.random.normal([matrix_size, matrix_size], dtype=tf.float32)
-        matrix_b = tf.random.normal([matrix_size, matrix_size], dtype=tf.float32)
+    matrix_a = torch.randn(matrix_size, matrix_size, dtype=torch.float32, device=device)
+    matrix_b = torch.randn(matrix_size, matrix_size, dtype=torch.float32, device=device)
 
     # Warmup phase
     print("Warmup phase...")
     for i in range(warmup):
-        with tf.device('/GPU:0'):
-            _ = tf.matmul(matrix_a, matrix_b)
+        _ = torch.matmul(matrix_a, matrix_b)
+        torch.cuda.synchronize()  # Ensure operation completes
         print(f"  Warmup {i+1}/{warmup} completed")
 
-    # Ensure all operations are complete
-    tf.raw_ops.DeviceBarrier()
     print("Warmup complete. Starting measurements...")
     print()
 
@@ -75,13 +76,13 @@ def matrix_multiply_benchmark(matrix_size=10000, iterations=10, warmup=3):
     execution_times = []
 
     for i in range(iterations):
+        torch.cuda.synchronize()  # Ensure clean start
         start_time = time.perf_counter()
 
-        with tf.device('/GPU:0'):
-            result = tf.matmul(matrix_a, matrix_b)
+        result = torch.matmul(matrix_a, matrix_b)
 
         # Ensure operation is complete (synchronize)
-        _ = result.numpy()  # Force evaluation
+        torch.cuda.synchronize()
 
         end_time = time.perf_counter()
         elapsed = end_time - start_time
