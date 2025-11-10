@@ -99,7 +99,9 @@ def run_trtllm_benchmark(model, workspace, output_dir, benchmark_type="throughpu
 
     # Generate a simple dataset for the benchmark
     # Each line should be a JSON object with a "text" field
-    num_requests = 100
+    # NVIDIA recommends 1000-3000 requests for throughput benchmarking
+    # Using 1000 as per Phase 2 IEEE paper requirements
+    num_requests = 1000
     dataset_lines = []
     sample_prompts = [
         "Write a short story about a robot learning to paint.",

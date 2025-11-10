@@ -172,10 +172,12 @@ function run_benchmark() {
         local output_arg="/results/${benchmark_type}_results_${timestamp}.csv"
     fi
 
+    # Docker configuration based on NVIDIA DGX Spark Playbooks
+    # Reference: https://github.com/NVIDIA/dgx-spark-playbooks/blob/main/nvidia/nvfp4-quantization/README.md
+    # Phase 2: Using NVIDIA-recommended baseline configuration
     docker run --rm \
         --gpus all \
         --ipc=host \
-        --shm-size=60g \
         --ulimit memlock=-1 \
         --ulimit stack=67108864 \
         -v "${BENCHMARK_DIR}:/workspace" \

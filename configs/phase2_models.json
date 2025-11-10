@@ -1,0 +1,175 @@
+{
+  "phase2_model_suite": {
+    "description": "10-model suite for Phase 2 IEEE paper benchmarking",
+    "total_models": 10,
+    "size_diversity": "1.5B to 72B parameters",
+    "architecture_variety": ["Decoder-only", "MoE", "Efficient"],
+    "runs_per_model": 30,
+    "requests_per_run": 1000,
+    "models": [
+      {
+        "tier": "small",
+        "name": "Qwen2-1.5B",
+        "huggingface_id": "Qwen/Qwen2-1.5B",
+        "size": "1.5B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 32768,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Smallest model - tests minimal containerization overhead",
+        "expected_memory_gb": 3,
+        "max_batch_size": 16
+      },
+      {
+        "tier": "small",
+        "name": "Gemma-2B",
+        "huggingface_id": "google/gemma-2b",
+        "size": "2B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 8192,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Google's efficient small model - industry baseline",
+        "expected_memory_gb": 4,
+        "max_batch_size": 16
+      },
+      {
+        "tier": "small",
+        "name": "Phi-3-mini",
+        "huggingface_id": "microsoft/Phi-3-mini-4k-instruct",
+        "size": "3.8B",
+        "architecture": "Efficient Transformer",
+        "context_length": 4096,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Microsoft's efficient design - tests architecture variations",
+        "expected_memory_gb": 8,
+        "max_batch_size": 12
+      },
+      {
+        "tier": "medium",
+        "name": "Mistral-7B-v0.3",
+        "huggingface_id": "mistralai/Mistral-7B-v0.3",
+        "size": "7B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 32768,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Popular open-source standard - academic baseline",
+        "expected_memory_gb": 14,
+        "max_batch_size": 8
+      },
+      {
+        "tier": "medium",
+        "name": "DeepSeek-R1-Distill-Qwen-7B",
+        "huggingface_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+        "size": "7B",
+        "architecture": "Reasoning-enhanced Transformer",
+        "context_length": 32768,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Cutting-edge reasoning model - Phase 1 continuity",
+        "expected_memory_gb": 14,
+        "max_batch_size": 8
+      },
+      {
+        "tier": "medium",
+        "name": "Llama-3-8B",
+        "huggingface_id": "meta-llama/Meta-Llama-3-8B",
+        "size": "8B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 8192,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Meta's industry standard - most cited in research",
+        "expected_memory_gb": 16,
+        "max_batch_size": 8
+      },
+      {
+        "tier": "large_moe",
+        "name": "Mixtral-8x7B",
+        "huggingface_id": "mistralai/Mixtral-8x7B-v0.1",
+        "size": "45B (8x7B MoE)",
+        "architecture": "Mixture of Experts",
+        "context_length": 32768,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "MoE architecture - different memory access patterns",
+        "expected_memory_gb": 90,
+        "max_batch_size": 4,
+        "note": "May need quantization (AWQ-4bit) to fit in 119GB unified memory"
+      },
+      {
+        "tier": "large",
+        "name": "Llama-3-70B",
+        "huggingface_id": "meta-llama/Meta-Llama-3-70B",
+        "size": "70B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 8192,
+        "precision": "bfloat16",
+        "quantization": "AWQ-4bit",
+        "rationale": "Large model standard - tests memory pressure",
+        "expected_memory_gb": 40,
+        "max_batch_size": 2,
+        "quantized_model_id": "casperhansen/llama-3-70b-instruct-awq"
+      },
+      {
+        "tier": "large",
+        "name": "Qwen2.5-72B-Instruct",
+        "huggingface_id": "Qwen/Qwen2.5-72B-Instruct",
+        "size": "72B",
+        "architecture": "Decoder-only Transformer",
+        "context_length": 131072,
+        "precision": "bfloat16",
+        "quantization": null,
+        "rationale": "Phase 1 continuity - long context capability",
+        "expected_memory_gb": 144,
+        "max_batch_size": 1,
+        "note": "May need quantization (AWQ-4bit) to fit in 119GB unified memory"
+      },
+      {
+        "tier": "legacy",
+        "name": "GPT-OSS-120B",
+        "huggingface_id": "openai/gpt-oss-120b",
+        "size": "120B (MoE with 5.1B active)",
+        "architecture": "Mixture of Experts",
+        "context_length": 8192,
+        "precision": "MXFP4",
+        "quantization": "MXFP4",
+        "rationale": "Phase 1 continuity - largest model tested",
+        "expected_memory_gb": 30,
+        "max_batch_size": 4,
+        "note": "REPLACE if model provenance is unclear - consider using Llama-2-13B or Qwen2-57B-A14B instead"
+      }
+    ],
+    "testing_priority": {
+      "tier1_essential": [
+        "Llama-3-8B",
+        "Llama-3-70B",
+        "Mistral-7B-v0.3",
+        "DeepSeek-R1-Distill-Qwen-7B",
+        "Qwen2.5-72B-Instruct"
+      ],
+      "tier2_important": [
+        "Mixtral-8x7B",
+        "Phi-3-mini",
+        "Gemma-2B"
+      ],
+      "tier3_optional": [
+        "Qwen2-1.5B",
+        "GPT-OSS-120B"
+      ]
+    },
+    "memory_considerations": {
+      "total_unified_memory_gb": 119.64,
+      "os_reserved_gb": 8,
+      "available_for_inference_gb": 111,
+      "notes": [
+        "Qwen2.5-72B (144GB) requires AWQ-4bit quantization",
+        "Mixtral-8x7B (90GB) may need quantization",
+        "Phase 1 showed native execution uses ~70GB peak",
+        "Container adds 20-30GB overhead, so budget 100GB max per model"
+      ]
+    }
+  }
+}
