@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DGX Spark LLM Benchmark Results</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <title>DGX Spark TensorRT-LLM Benchmarking</title>
     <style>
         * {
             margin: 0;
@@ -13,398 +12,250 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
             line-height: 1.6;
             color: #333;
-            background: #f5f5f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
+            max-width: 900px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 60px 40px;
         }
 
         header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 60px 20px;
             text-align: center;
-            margin-bottom: 40px;
-            border-radius: 10px;
+            margin-bottom: 50px;
         }
 
         h1 {
-            font-size: 2.5rem;
+            font-size: 2.5em;
+            color: #2d3748;
             margin-bottom: 10px;
+            font-weight: 700;
         }
 
         .subtitle {
-            font-size: 1.2rem;
-            opacity: 0.9;
+            font-size: 1.2em;
+            color: #718096;
+            margin-bottom: 20px;
         }
 
-        .summary-cards {
+        .badge {
+            display: inline-block;
+            background: #48bb78;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin: 5px;
+        }
+
+        .intro {
+            text-align: center;
+            font-size: 1.1em;
+            color: #4a5568;
+            margin-bottom: 40px;
+            line-height: 1.8;
+        }
+
+        .phases {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
             margin-bottom: 40px;
         }
 
-        .card {
-            background: white;
+        .phase-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
             padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            color: white;
+            text-decoration: none;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
-        .card h3 {
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            color: #666;
+        .phase-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .phase-card.phase2 {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .phase-number {
+            font-size: 3em;
+            font-weight: 700;
+            opacity: 0.3;
             margin-bottom: 10px;
         }
 
-        .card .value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #667eea;
+        .phase-title {
+            font-size: 1.5em;
+            font-weight: 700;
+            margin-bottom: 10px;
         }
 
-        .card .label {
-            font-size: 0.9rem;
-            color: #999;
-            margin-top: 5px;
+        .phase-status {
+            display: inline-block;
+            background: rgba(255,255,255,0.3);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-bottom: 15px;
         }
 
-        .chart-container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-
-        .chart-container h2 {
-            margin-bottom: 20px;
-            color: #333;
-        }
-
-        .chart-wrapper {
-            position: relative;
-            height: 400px;
-        }
-
-        .findings {
-            background: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-top: 40px;
-        }
-
-        .findings h2 {
-            color: #667eea;
+        .phase-description {
+            font-size: 1em;
+            line-height: 1.6;
+            opacity: 0.95;
             margin-bottom: 20px;
         }
 
-        .findings ul {
+        .phase-highlights {
             list-style: none;
-            padding-left: 0;
+            margin-bottom: 20px;
         }
 
-        .findings li {
-            padding: 15px;
-            margin-bottom: 10px;
-            background: #f8f9fa;
-            border-left: 4px solid #667eea;
-            border-radius: 5px;
+        .phase-highlights li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
         }
 
-        .findings li strong {
+        .phase-highlights li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .view-results {
+            display: inline-block;
+            background: white;
             color: #667eea;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.3s ease;
         }
 
-        footer {
+        .phase-card.phase2 .view-results {
+            color: #f5576c;
+        }
+
+        .view-results:hover {
+            background: rgba(255,255,255,0.9);
+        }
+
+        .footer {
             text-align: center;
-            padding: 40px 20px;
-            color: #666;
-            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 2px solid #e2e8f0;
+            color: #718096;
         }
 
-        .hardware-info {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-        }
-
-        .hardware-info h3 {
+        .footer a {
             color: #667eea;
-            margin-bottom: 10px;
+            text-decoration: none;
+            font-weight: 600;
         }
 
-        .hardware-info p {
-            margin: 5px 0;
-            font-size: 0.95rem;
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+
+            .container {
+                padding: 40px 20px;
+            }
+
+            .phases {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>DGX Spark TensorRT-LLM Benchmark Results</h1>
-            <p class="subtitle">Container vs Native Execution Performance Analysis</p>
-            <p style="margin-top: 20px; font-size: 0.9rem;">Phase 1: Memory Efficiency Study | November 2025</p>
+            <h1>DGX Spark TensorRT-LLM Benchmarking</h1>
+            <p class="subtitle">Grace Hopper Architecture Performance Analysis</p>
+            <div>
+                <span class="badge">NVIDIA DGX Spark</span>
+                <span class="badge">TensorRT-LLM</span>
+                <span class="badge">Grace Hopper GB10</span>
+            </div>
         </header>
 
-        <div class="hardware-info card">
-            <h3>🖥️ Test Hardware</h3>
-            <p><strong>System:</strong> NVIDIA DGX Spark (ProMax GB10)</p>
-            <p><strong>GPU:</strong> NVIDIA GB10 (Grace Hopper, Compute Capability 12.1)</p>
-            <p><strong>Memory:</strong> 119.64 GB Unified (Shared CPU+GPU)</p>
-            <p><strong>Architecture:</strong> ARM Cortex (X925 + A725, 20 cores)</p>
-            <p><strong>Test Runs:</strong> 60 total (3 models × 2 environments × 10 iterations)</p>
+        <div class="intro">
+            <p>Comprehensive benchmarking of large language model inference on NVIDIA DGX Spark,
+            comparing execution environments and investigating memory behavior on unified Grace Hopper architecture.</p>
         </div>
 
-        <div class="summary-cards">
-            <div class="card">
-                <h3>Memory Savings</h3>
-                <div class="value">20-31 GB</div>
-                <div class="label">Native uses less memory</div>
-            </div>
-            <div class="card">
-                <h3>KV Cache Advantage</h3>
-                <div class="value">1.6-2.7x</div>
-                <div class="label">More cache in native mode</div>
-            </div>
-            <div class="card">
-                <h3>Performance Impact</h3>
-                <div class="value">~0%</div>
-                <div class="label">Identical throughput</div>
-            </div>
-            <div class="card">
-                <h3>Total Benchmarks</h3>
-                <div class="value">60</div>
-                <div class="label">Comprehensive testing</div>
-            </div>
+        <div class="phases">
+            <a href="phase1/index.html" class="phase-card">
+                <div class="phase-number">01</div>
+                <div class="phase-title">Container vs Native Execution</div>
+                <div class="phase-status">✅ Complete</div>
+                <p class="phase-description">
+                    Systematic comparison of Docker containerized execution versus native (chroot) execution
+                    across three large language models.
+                </p>
+                <ul class="phase-highlights">
+                    <li>60 benchmark runs across 3 models</li>
+                    <li>20-30 GB memory overhead discovered</li>
+                    <li>1.6-2.7x KV cache reduction in containers</li>
+                    <li>Identical throughput performance</li>
+                </ul>
+                <span class="view-results">View Phase 1 Results →</span>
+            </a>
+
+            <a href="#phase2" class="phase-card phase2" style="opacity: 0.7; cursor: not-allowed;" onclick="return false;">
+                <div class="phase-number">02</div>
+                <div class="phase-title">Advanced Testing & Optimization</div>
+                <div class="phase-status">🚧 Coming Soon</div>
+                <p class="phase-description">
+                    Extended testing with cgroup workarounds, alternative containerization methods,
+                    and deeper investigation into Grace Hopper unified memory behavior.
+                </p>
+                <ul class="phase-highlights">
+                    <li>Cgroup-level workarounds testing</li>
+                    <li>systemd-nspawn evaluation</li>
+                    <li>Larger model suite</li>
+                    <li>Production recommendations</li>
+                </ul>
+                <span class="view-results">In Progress →</span>
+            </a>
         </div>
 
-        <div class="chart-container">
-            <h2>📊 Peak Memory Usage Comparison</h2>
-            <div class="chart-wrapper">
-                <canvas id="memoryChart"></canvas>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <h2>💾 KV Cache Allocation Comparison</h2>
-            <div class="chart-wrapper">
-                <canvas id="kvCacheChart"></canvas>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <h2>⚡ Throughput Performance</h2>
-            <div class="chart-wrapper">
-                <canvas id="throughputChart"></canvas>
-            </div>
-        </div>
-
-        <div class="findings">
-            <h2>🔍 Key Findings</h2>
-            <ul>
-                <li>
-                    <strong>Memory Overhead:</strong> Docker containers consume 20-31 GB more memory than native execution due to Grace Hopper unified memory architecture. Docker's cgroup accounting double-counts GPU allocations.
-                </li>
-                <li>
-                    <strong>KV Cache Impact:</strong> Native execution provides 1.6-2.7x more KV cache (17-28 GB more), enabling better throughput scaling and longer context handling.
-                </li>
-                <li>
-                    <strong>Performance Parity:</strong> Both environments achieve identical throughput (~119-120 tokens/sec), with standard deviation < 0.6 tokens/sec. No performance penalty for native execution.
-                </li>
-                <li>
-                    <strong>Model Efficiency:</strong> Qwen2.5-72B shows the best memory efficiency (70.03 GB peak, 44.71 GB KV cache), using less memory than the 7B DeepSeek model despite being 10x larger.
-                </li>
-                <li>
-                    <strong>Consistency:</strong> All 60 runs showed excellent thermal management (59-61°C) and performance stability (σ < 0.6 tokens/sec).
-                </li>
-                <li>
-                    <strong>Root Cause:</strong> Grace Hopper's unified memory architecture causes Docker's cgroups to double-count GPU allocations as container RAM. This overhead does not exist on discrete GPU systems (H100/A100).
-                </li>
-            </ul>
-        </div>
-
-        <div class="findings" style="background: #e8f5e9; border-left: 4px solid #4caf50;">
-            <h2 style="color: #2e7d32;">✅ Recommendations</h2>
-            <ul>
-                <li style="background: white; border-color: #4caf50;">
-                    <strong>For Large Models (>10B):</strong> Use native/chroot execution on DGX Spark for optimal memory efficiency. The 20-30 GB savings and 1.6-2.7x KV cache advantage are significant for production workloads.
-                </li>
-                <li style="background: white; border-color: #4caf50;">
-                    <strong>For Small Models (<10B):</strong> Docker is acceptable if deployment convenience outweighs ~30 GB overhead.
-                </li>
-                <li style="background: white; border-color: #4caf50;">
-                    <strong>For Discrete GPUs:</strong> This finding is specific to Grace Hopper unified memory. Traditional discrete GPU systems (H100, A100) should not exhibit this pattern.
-                </li>
-                <li style="background: white; border-color: #4caf50;">
-                    <strong>Phase 2 Investigation:</strong> Test cgroup-level solutions, systemd-nspawn alternatives, and compare with discrete GPU systems.
-                </li>
-            </ul>
-        </div>
-
-        <footer>
-            <p>📄 <a href="https://github.com/USER/benchmark-spark">View on GitHub</a> | 📊 <a href="../ANALYSIS.md">Full Analysis Report</a></p>
-            <p style="margin-top: 10px; font-size: 0.9rem;">Generated from 60 comprehensive benchmark runs on NVIDIA DGX Spark</p>
+        <footer class="footer">
+            <p>
+                <strong>Repository:</strong>
+                <a href="https://github.com/USER/benchmark-spark" target="_blank">github.com/USER/benchmark-spark</a>
+            </p>
+            <p style="margin-top: 10px;">
+                Hardware: NVIDIA DGX Spark (ProMax GB10) • Software: TensorRT-LLM • OS: Ubuntu 24.04.3 LTS
+            </p>
         </footer>
     </div>
-
-    <script>
-        // Chart data
-        const chartData = {
-            "memory_comparison": [
-                {"model": "DeepSeek-7B", "native": 70.47, "container": 101.3, "overhead": 30.83},
-                {"model": "GPT-OSS-120B", "native": 71.72, "container": 93.43, "overhead": 21.71},
-                {"model": "Qwen2.5-72B", "native": 70.03, "container": 90.02, "overhead": 19.99}
-            ],
-            "kv_cache_comparison": [
-                {"model": "DeepSeek-7B", "native": 44.31, "container": 16.57, "difference": 27.75},
-                {"model": "GPT-OSS-120B", "native": 43.19, "container": 23.65, "difference": 19.54},
-                {"model": "Qwen2.5-72B", "native": 44.71, "container": 26.72, "difference": 17.99}
-            ],
-            "throughput_comparison": [
-                {"model": "DeepSeek-7B", "native": 119.79, "container": 119.4},
-                {"model": "GPT-OSS-120B", "native": 120.26, "container": 120.41},
-                {"model": "Qwen2.5-72B", "native": 119.33, "container": 119.51}
-            ]
-        };
-
-        // Common chart options
-        const commonOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + ' ' + (context.chart.options.scales.y.title.text.includes('GB') ? 'GiB' : 'tokens/sec');
-                        }
-                    }
-                }
-            }
-        };
-
-        // Memory Chart
-        new Chart(document.getElementById('memoryChart'), {
-            type: 'bar',
-            data: {
-                labels: chartData.memory_comparison.map(d => d.model),
-                datasets: [
-                    {
-                        label: 'Native (Chroot)',
-                        data: chartData.memory_comparison.map(d => d.native),
-                        backgroundColor: 'rgba(102, 126, 234, 0.8)',
-                        borderColor: 'rgba(102, 126, 234, 1)',
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Container (Docker)',
-                        data: chartData.memory_comparison.map(d => d.container),
-                        backgroundColor: 'rgba(237, 100, 166, 0.8)',
-                        borderColor: 'rgba(237, 100, 166, 1)',
-                        borderWidth: 2
-                    }
-                ]
-            },
-            options: {
-                ...commonOptions,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Peak Memory (GiB)'
-                        }
-                    }
-                }
-            }
-        });
-
-        // KV Cache Chart
-        new Chart(document.getElementById('kvCacheChart'), {
-            type: 'bar',
-            data: {
-                labels: chartData.kv_cache_comparison.map(d => d.model),
-                datasets: [
-                    {
-                        label: 'Native (Chroot)',
-                        data: chartData.kv_cache_comparison.map(d => d.native),
-                        backgroundColor: 'rgba(76, 175, 80, 0.8)',
-                        borderColor: 'rgba(76, 175, 80, 1)',
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Container (Docker)',
-                        data: chartData.kv_cache_comparison.map(d => d.container),
-                        backgroundColor: 'rgba(255, 152, 0, 0.8)',
-                        borderColor: 'rgba(255, 152, 0, 1)',
-                        borderWidth: 2
-                    }
-                ]
-            },
-            options: {
-                ...commonOptions,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'KV Cache Available (GiB)'
-                        }
-                    }
-                }
-            }
-        });
-
-        // Throughput Chart
-        new Chart(document.getElementById('throughputChart'), {
-            type: 'bar',
-            data: {
-                labels: chartData.throughput_comparison.map(d => d.model),
-                datasets: [
-                    {
-                        label: 'Native (Chroot)',
-                        data: chartData.throughput_comparison.map(d => d.native),
-                        backgroundColor: 'rgba(33, 150, 243, 0.8)',
-                        borderColor: 'rgba(33, 150, 243, 1)',
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Container (Docker)',
-                        data: chartData.throughput_comparison.map(d => d.container),
-                        backgroundColor: 'rgba(156, 39, 176, 0.8)',
-                        borderColor: 'rgba(156, 39, 176, 1)',
-                        borderWidth: 2
-                    }
-                ]
-            },
-            options: {
-                ...commonOptions,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 130,
-                        title: {
-                            display: true,
-                            text: 'Throughput (tokens/sec)'
-                        }
-                    }
-                }
-            }
-        });
-    </script>
 </body>
 </html>

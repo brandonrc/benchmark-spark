@@ -72,3 +72,5 @@ models/
 tmp/
 temp/
 .cache/
+*.cache
+model.cache
