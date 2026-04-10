@@ -1,20 +1,18 @@
-# Python Dependencies for Benchmark Scripts
+# Python dependencies for benchmark-spark v2 orchestration and analysis.
+#
+# These are for the HOST side only (orchestration, analysis).
+# TensorRT-LLM itself is NOT installed here — it lives inside the
+# spark-single-gpu-dev container image, which is pulled by Docker.
 
-# Core ML frameworks
-torch>=2.0.0
-tensorflow[and-cuda]>=2.13.0
-
-# Data processing
+# Core
 numpy>=1.24.0
-pandas>=2.0.0
 pyyaml>=6.0
 
-# Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
-# Statistical analysis
+# Statistics (bootstrap, TOST, Welch's t, Holm-Bonferroni)
 scipy>=1.10.0
 
-# TensorRT-LLM (install separately via build process)
-# See scripts/setup_native.sh for installation instructions
+# Data wrangling (analysis convenience)
+pandas>=2.0.0
+
+# Optional: plotting for CI figures
+matplotlib>=3.7.0

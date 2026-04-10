@@ -1,0 +1,192 @@
+# configs/experiment.yaml — v2 experiment definition
+#
+# This is the single source of truth for what an orchestrator run does.
+# scripts/orchestrate.py reads this, generates a random run plan, and never
+# mutates the file.
+#
+# All cells / workloads / models defined here must match TEST_PLAN.md.
+
+experiment:
+  name: "dgx-spark-container-kv-cache-v2"
+  batch_id: null                   # filled from CLI or timestamp
+  runs_per_cell: 10                # N = 10 per (cell × model)
+  warmup_reps: 2                   # first 2 runs of shuffled order are warmup
+  random_seed: 2026041201          # CHANGE this to re-run with a different order
+  cooldown_seconds: 300            # 5 minutes minimum between runs
+  max_gpu_temp_c: 45               # GPU must cool to ≤45°C before next run
+  per_run_timeout_seconds: 3600    # 60 minutes per run upper bound
+  versions_lockfile: "configs/versions.lock"
+
+container_image: "nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev"
+container_rootfs: "/home/khan/container-rootfs"
+models_dir: "/data/models/huggingface"
+
+trtllm_args:
+  max_batch_size: 8
+  tokens_per_block: 64
+  kv_cache_free_gpu_memory_fraction: 0.90   # TensorRT-LLM default, used only in dynamic mode
+
+# ---------------------------------------------------------------------------
+# Workloads — see TEST_PLAN.md §9
+# ---------------------------------------------------------------------------
+workloads:
+  W1:
+    description: "Long-context capacity stressor (PRIMARY for KV-cache hypothesis)"
+    num_requests: 500
+    concurrency: 32
+    input_len_range: [2048, 4096]
+    output_len: 512
+  W2:
+    description: "Short-request throughput (PRIMARY for throughput equivalence)"
+    num_requests: 2000
+    concurrency: 64
+    input_len_range: [128, 256]
+    output_len: 128
+  W3:
+    description: "Mixed / sanity check only (not in primary analysis)"
+    num_requests: 1000
+    concurrency: 32
+    input_len_range: [256, 2048]
+    output_len: 256
+
+# ---------------------------------------------------------------------------
+# Models — pinned by HuggingFace commit where possible
+# ---------------------------------------------------------------------------
+models:
+  - short: "deepseek7b"
+    name: "DeepSeek-R1-Distill-Qwen-7B"
+    huggingface_id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+    huggingface_revision: null        # PIN after first download
+    local_path: "/data/models/huggingface/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+    precision: "bfloat16"
+    quantization: null
+
+  - short: "qwen72b"
+    name: "Qwen2.5-72B-Instruct"
+    huggingface_id: "Qwen/Qwen2.5-72B-Instruct"
+    huggingface_revision: null        # PIN after first download
+    local_path: "/data/models/huggingface/Qwen/Qwen2.5-72B-Instruct"
+    precision: "bfloat16"
+    quantization: "AWQ-4bit"          # required to fit in 119 GiB
+
+# ---------------------------------------------------------------------------
+# Cells — each defines one (environment × config × KV-sizing-mode) combination.
+# See TEST_PLAN.md §7.
+# ---------------------------------------------------------------------------
+cells:
+
+  - id: "E0N"
+    description: "Baseline native (chroot, no tweaks)"
+    environment_kind: "native"
+    workload: "W1"
+    docker_flags: []
+    pinned_kv_blocks: null
+
+  - id: "E0C"
+    description: "Baseline container — exactly Phase 1 config"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  - id: "E1"
+    description: "E0C + --shm-size=32g"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--shm-size=32g"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  - id: "E2"
+    description: "E0C + --memory=128g --memory-swap=-1 (cgroup memory.max relaxed)"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--memory=128g"
+      - "--memory-swap=-1"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  - id: "E3"
+    description: "E0C + --cgroup-parent=/ (attach to root cgroup)"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--cgroup-parent=/"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  - id: "E4N"
+    description: "Native with pinned KV blocks (falsifier control)"
+    environment_kind: "native"
+    workload: "W1"
+    docker_flags: []
+    # Pin the KV cache to a fixed block count. The actual value must be
+    # small enough to fit in both native and container post-weight memory.
+    # Phase 1 observed container KV at 22 GiB @ 64-token blocks ≈ 5500 blocks.
+    # We pin 1000 blocks below that floor to guarantee both environments can
+    # satisfy it, so any E4C−E4N gap is unambiguous.
+    pinned_kv_blocks: 4500
+
+  - id: "E4C"
+    description: "PRIMARY FALSIFIER — container with same pinned KV block count as E4N"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: 4500
+
+  - id: "E5"
+    description: "E0C + --privileged (upper bound for cgroup-relaxation effect)"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--privileged"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  - id: "E6"
+    description: "Best-case container: all known knobs combined"
+    environment_kind: "container"
+    workload: "W1"
+    docker_flags:
+      - "--ipc=host"
+      - "--shm-size=32g"
+      - "--memory=128g"
+      - "--memory-swap=-1"
+      - "--cgroup-parent=/"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
+
+  # ---- throughput-equivalence cells (W2 workload, baseline configs only) ----
+  - id: "T0N"
+    description: "Throughput equivalence — native baseline (W2)"
+    environment_kind: "native"
+    workload: "W2"
+    docker_flags: []
+    pinned_kv_blocks: null
+
+  - id: "T0C"
+    description: "Throughput equivalence — container baseline (W2)"
+    environment_kind: "container"
+    workload: "W2"
+    docker_flags:
+      - "--ipc=host"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    pinned_kv_blocks: null
