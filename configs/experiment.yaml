@@ -17,9 +17,9 @@ experiment:
   per_run_timeout_seconds: 3600    # 60 minutes per run upper bound
   versions_lockfile: "configs/versions.lock"
 
-container_image: "nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev"
-container_rootfs: "/home/khan/container-rootfs"
-models_dir: "/data/models/huggingface"
+container_image: "${BENCH_CONTAINER_IMAGE:-nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev}"
+container_rootfs: "${BENCH_CONTAINER_ROOTFS:-${HOME}/container-rootfs}"
+models_dir:       "${BENCH_MODELS_DIR:-/data/models/huggingface}"
 
 trtllm_args:
   max_batch_size: 8
@@ -57,7 +57,7 @@ models:
     name: "DeepSeek-R1-Distill-Qwen-7B"
     huggingface_id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
     huggingface_revision: null        # PIN after first download
-    local_path: "/data/models/huggingface/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+    local_path: "${BENCH_MODELS_DIR:-/data/models/huggingface}/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
     precision: "bfloat16"
     quantization: null
 
@@ -65,7 +65,7 @@ models:
     name: "Qwen2.5-72B-Instruct"
     huggingface_id: "Qwen/Qwen2.5-72B-Instruct"
     huggingface_revision: null        # PIN after first download
-    local_path: "/data/models/huggingface/Qwen/Qwen2.5-72B-Instruct"
+    local_path: "${BENCH_MODELS_DIR:-/data/models/huggingface}/Qwen/Qwen2.5-72B-Instruct"
     precision: "bfloat16"
     quantization: "AWQ-4bit"          # required to fit in 119 GiB
 

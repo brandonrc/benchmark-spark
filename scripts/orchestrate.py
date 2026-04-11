@@ -43,6 +43,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -55,6 +56,23 @@ from typing import Any
 # json fallback. If configs/experiment.yaml is actually YAML, require PyYAML.
 # ---------------------------------------------------------------------------
 
+_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_env(value: Any) -> Any:
+    """Recursively expand ${VAR} and ${VAR:-default} in strings, using os.environ."""
+    if isinstance(value, str):
+        def sub(m: re.Match[str]) -> str:
+            name, default = m.group(1), (m.group(2) or "")
+            return os.environ.get(name, default)
+        return _VAR_RE.sub(sub, value)
+    if isinstance(value, list):
+        return [_expand_env(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_env(v) for k, v in value.items()}
+    return value
+
+
 def load_experiment(path: pathlib.Path) -> dict[str, Any]:
     text = path.read_text()
     if path.suffix in (".yaml", ".yml"):
@@ -64,8 +82,10 @@ def load_experiment(path: pathlib.Path) -> dict[str, Any]:
             raise SystemExit(
                 f"PyYAML required to read {path}. Install with: pip install pyyaml"
             ) from e
-        return yaml.safe_load(text)
-    return json.loads(text)
+        raw = yaml.safe_load(text)
+    else:
+        raw = json.loads(text)
+    return _expand_env(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -318,20 +338,28 @@ def _execute_run(rc: dict, cfg_path: pathlib.Path, out_json: pathlib.Path,
         if not rootfs.exists():
             print(f"[fatal] rootfs missing: {rootfs}", file=sys.stderr)
             return 20
-        runner = rootfs / "run_in_rootfs.sh"
+        runner = pathlib.Path(__file__).resolve().parent / "native_runner.sh"
+        if not runner.exists():
+            print(f"[fatal] native_runner.sh missing: {runner}", file=sys.stderr)
+            return 21
         inner_cmd = [
             "python3",
             "/workspace/benchmarks/run_benchmark.py",
             "--config", f"/results/{cfg_path.name}",
             "--out",    f"/results/{out_json.name}",
         ]
-        # Bind-mount benchmark dir + results dir + models dir into the rootfs
+        # Ensure workspace_dir is reachable inside chroot via /trtllm_workspace
+        # and bench dir / results dir / models dir under their canonical paths.
         cmd = [
             "sudo", str(runner),
+            "--rootfs", str(rootfs),
             "--bind", f"{bench_dir}:/workspace",
             "--bind", f"{results_dir}:/results",
             "--bind", f"{models_dir}:/models",
+            "--bind", f"{workspace_dir}:/trtllm_workspace",
             "--env",  f"BATCH_ID={rc['batch_id']}",
+            "--env",  f"RUN_ID={rc['run_id']}",
+            "--",
             "bash", "-c", shlex.join(inner_cmd),
         ]
     else:
